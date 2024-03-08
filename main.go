@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"golang.org/x/exp/rand"
@@ -11,48 +13,75 @@ import (
 )
 
 func main() {
-	const simulations int32 = 1_000_000
+	// Command line flag variables
+	var distribution string
+	var lambda float64
+	var mu float64
+	var sigma float64
+	var simulations int
+	var iterations int
+
+	// Parse command line arguments
+	flag.StringVar(&distribution, "distribution", "lognormal", "Distribution type (lognormal/normal/...)")
+	flag.Float64Var(&lambda, "lambda", 1.2, "Lambda value")
+	flag.Float64Var(&mu, "mu", 10, "Mu value")
+	flag.Float64Var(&sigma, "sigma", 1, "Sigma value")
+	flag.IntVar(&simulations, "simulations", 1000, "Number of simulations")
+	flag.IntVar(&iterations, "iterations", 1, "Number of iterations")
+	flag.Parse()
 
 	// Get uint64 random seed based on the current epoch time
 	seed := uint64(time.Now().UnixNano())
 	src := rand.New(rand.NewSource(seed))
 
-	frequency := distuv.Poisson{
-		Lambda: 1.2,
-		Src:    src,
-	}
+	var wg sync.WaitGroup
+	wg.Add(int(iterations))
 
-	severity := distuv.LogNormal{
-		Mu:    10,
-		Sigma: 1,
-		Src:   src,
-	}
+	for sim := 0; sim < iterations; sim++ {
+		go func() {
+			defer wg.Done()
 
-	data := make([]float64, simulations)
-	prev_loss := 0.0
-	comparison := 0.0
-	for i := range data {
-		events := frequency.Rand()
-		for j := 0; j < int(events); j++ {
-			data[i] += severity.Rand()
-		}
-
-		if i%5000 == 0 {
-			datacopy := make([]float64, i+1)
-			copy(datacopy, data)
-			sort.Float64s(datacopy)
-			loss := stat.Quantile(0.999, stat.Empirical, datacopy, nil)
-			if prev_loss != 0.0 {
-				comparison = ((loss - prev_loss) / prev_loss) * 100
-				fmt.Printf("%0.2f\n", comparison)
+			frequency := distuv.Poisson{
+				Lambda: lambda,
+				Src:    src,
 			}
-			prev_loss = loss
-		}
+
+			var severity distuv.Rander
+			switch distribution {
+			case "lognormal":
+				severity = distuv.LogNormal{
+					Mu:    mu,
+					Sigma: sigma,
+					Src:   src,
+				}
+
+			case "normal":
+				severity = distuv.Normal{
+					Mu:    mu,
+					Sigma: sigma,
+					Src:   src,
+				}
+
+			default:
+				fmt.Println("Invalid distribution type")
+				return
+			}
+
+			data := make([]float64, simulations)
+			for i := range data {
+				events := frequency.Rand()
+				for j := 0; j < int(events); j++ {
+					data[i] += severity.Rand()
+				}
+			}
+			sort.Float64s(data)
+
+			// Calculate the mean and standard deviation of the data
+
+			percentile := stat.Quantile(0.999, stat.Empirical, data, nil)
+			fmt.Printf("%0.2f\n", percentile)
+		}()
 	}
-	sort.Float64s(data)
 
-	// Calculate the mean and standard deviation of the data
-
-	percentile := stat.Quantile(0.999, stat.Empirical, data, nil)
-	fmt.Printf("%0.2f\n", percentile)
+	wg.Wait()
 }
