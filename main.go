@@ -34,38 +34,38 @@ func main() {
 	seed := uint64(time.Now().UnixNano())
 	src := rand.New(rand.NewSource(seed))
 
+	frequency := distuv.Poisson{
+		Lambda: lambda,
+		Src:    src,
+	}
+
+	var severity distuv.Rander
+	switch distribution {
+	case "lognormal":
+		severity = distuv.LogNormal{
+			Mu:    mu,
+			Sigma: sigma,
+			Src:   src,
+		}
+
+	case "normal":
+		severity = distuv.Normal{
+			Mu:    mu,
+			Sigma: sigma,
+			Src:   src,
+		}
+
+	default:
+		fmt.Println("Invalid distribution type")
+		return
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(int(iterations))
 
 	for sim := 0; sim < iterations; sim++ {
 		go func() {
 			defer wg.Done()
-
-			frequency := distuv.Poisson{
-				Lambda: lambda,
-				Src:    src,
-			}
-
-			var severity distuv.Rander
-			switch distribution {
-			case "lognormal":
-				severity = distuv.LogNormal{
-					Mu:    mu,
-					Sigma: sigma,
-					Src:   src,
-				}
-
-			case "normal":
-				severity = distuv.Normal{
-					Mu:    mu,
-					Sigma: sigma,
-					Src:   src,
-				}
-
-			default:
-				fmt.Println("Invalid distribution type")
-				return
-			}
 
 			data := make([]float64, simulations)
 			for i := range data {
@@ -75,8 +75,6 @@ func main() {
 				}
 			}
 			sort.Float64s(data)
-
-			// Calculate the mean and standard deviation of the data
 
 			percentile := stat.Quantile(0.999, stat.Empirical, data, nil)
 			fmt.Printf("%0.2f\n", percentile)
